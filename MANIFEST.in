@@ -1,0 +1,4 @@
+include cpp/block_pool.h
+recursive-include kv_cache/csrc *.cpp *.cu
+include CMakeLists.txt
+include tests/allocator_test.cpp
