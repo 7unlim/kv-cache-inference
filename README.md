@@ -7,7 +7,7 @@ to Transformers. Transformers is used for tokenization and as an independent tes
 
 ## Validation status
 
-All 29 correctness tests passed on an NVIDIA A40 with PyTorch 2.8.0+cu128
+The baseline implementation at commit `6010b59` passed all 29 correctness tests on an NVIDIA A40 with PyTorch 2.8.0+cu128
 and CUDA 12.8 on October 1, 2026, including CUDA compilation, paged attention
 in FP32/FP16/BF16, and small-model greedy output parity. All 29 also passed in
 an earlier RTX 4090 run. CPU logits agree with an independent Hugging Face
@@ -161,3 +161,24 @@ actual K/V prefix preservation, ragged greedy token parity, EOS and failure clea
 checkpoint roundtrip, and independent Hugging Face full-forward logits. Numerical
 agreement is checked with dtype-appropriate tolerances; token parity is a stronger
 workload-specific check, not a guarantee for all floating-point executions.
+
+## Experimental multi-warp attention
+
+The current source adds opt-in `warps=4` and `warps=8` variants. Each warp
+processes a disjoint subset of a context partition, then shared-memory reduction
+combines their softmax states. `warps=1` remains the default baseline.
+These changes have **not yet been compiled or tested on a GPU**; the recorded
+A40 results above apply to the earlier baseline, not these candidates.
+Local checks passed 16 CPU tests; 37 CUDA tests were skipped.
+
+Compare candidates on the same GPU after the expanded correctness suite passes:
+
+```bash
+python -m pytest -q
+python -m benchmarks.attention --warps 1 --repeats 5 --output results/warps1.json
+python -m benchmarks.attention --warps 4 --repeats 5 --output results/warps4.json
+python -m benchmarks.attention --warps 8 --repeats 5 --output results/warps8.json
+```
+
+The benchmark now reports median latency and individual timing samples, alternating
+custom/flash timing order between repeats. No speedup is claimed until measured.

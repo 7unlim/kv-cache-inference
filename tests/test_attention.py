@@ -3,9 +3,10 @@ import torch
 import torch.nn.functional as F
 from kv_cache.attention import paged_attention
 
+@pytest.mark.parametrize("warps",[1,4,8])
 @pytest.mark.parametrize("dtype",[torch.float32,torch.float16,torch.bfloat16])
 @pytest.mark.parametrize("head_dim",[32,64,128,256])
-def test_cuda_ragged_permuted_pages(dtype,head_dim):
+def test_cuda_ragged_permuted_pages(dtype,head_dim,warps):
     if not torch.cuda.is_available(): pytest.skip("CUDA device required")
     torch.manual_seed(17)
     lengths=torch.tensor([1,17,257,513],device="cuda",dtype=torch.int32)
@@ -15,7 +16,7 @@ def test_cuda_ragged_permuted_pages(dtype,head_dim):
     tables=torch.randperm(pages,device="cuda").reshape(4,33).to(torch.int32)
     q=torch.randn(4,8,head_dim,device="cuda",dtype=dtype)
     expected=paged_attention(q,k,v,tables,lengths)
-    actual=paged_attention(q,k,v,tables,lengths,backend="cuda",split_size=128)
+    actual=paged_attention(q,k,v,tables,lengths,backend="cuda",split_size=128,warps=warps)
     tol={torch.float32:2e-5,torch.float16:3e-3,torch.bfloat16:3e-2}[dtype]
     torch.testing.assert_close(actual,expected,rtol=tol,atol=tol)
 

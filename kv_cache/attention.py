@@ -10,12 +10,12 @@ def extension():
     return load(name="paged_decode_cuda", sources=[str(root / "decode.cpp"),
                 str(root / "decode.cu")], extra_cuda_cflags=["-O3"], verbose=False)
 
-def paged_attention(q, k, v, tables, lengths, *, backend="reference", split_size=256):
+def paged_attention(q, k, v, tables, lengths, *, backend="reference", split_size=256, warps=1):
     """q [B,H,D]; pages [P,S,Hkv,D]; one query at each sequence's last token."""
     if backend == "cuda":
         if not q.is_cuda:
             raise ValueError("CUDA backend requires CUDA tensors")
-        return extension().decode(q, k, v, tables, lengths, split_size)
+        return extension().decode(q, k, v, tables, lengths, split_size, warps)
     if backend != "reference":
         raise ValueError(f"unknown attention backend: {backend}")
     outputs = []
