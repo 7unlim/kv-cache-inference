@@ -1,0 +1,20 @@
+{
+  "gpu": "NVIDIA A40",
+  "torch": "2.8.0+cu128",
+  "cuda": "12.8",
+  "batch": 32,
+  "context": 2048,
+  "heads": 32,
+  "kv_heads": 8,
+  "head_dim": 128,
+  "dtype": "bfloat16",
+  "block_size": 16,
+  "split_size": 256,
+  "iterations": 100,
+  "paged_ms": 2.6926388549804687,
+  "flash_sdpa_ms": 0.48467838287353515,
+  "throughput_ratio": 0.18000125860809166,
+  "paged_queries_per_second": 11884.252483696746,
+  "max_abs_error": 0.0009765625,
+  "scope": "attention only; includes custom scratch allocation; excludes page construction and dense gathering"
+}

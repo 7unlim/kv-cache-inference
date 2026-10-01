@@ -7,16 +7,24 @@ to Transformers. Transformers is used for tokenization and as an independent tes
 
 ## Validation status
 
-CPU correctness is tested, including logits against Hugging Face's independent
-Llama implementation on a small random model. Local validation on Apple Silicon:
-16 Python tests passed, 13 CUDA tests skipped; 10,000 randomized native allocator
-operations passed both normally and with UBSan. The combined ASan/UBSan executable
-stalled locally and was terminated; ASan is not locally validated. Linux CI is
-configured to run both sanitizers. CUDA source and GPU benchmarks are
-provided, but **CUDA compilation, Llama 3 8B checkpoint execution, and A100 performance
-have not yet been validated**. No A100 throughput, memory reduction, or concurrency
-claim is an established result of this repository. In particular, 1,100 tokens/s,
-75% of flash SDPA, and 4x concurrent sequences are unverified targets.
+All 29 correctness tests passed on an NVIDIA A40 with PyTorch 2.8.0+cu128
+and CUDA 12.8 on October 1, 2026, including CUDA compilation, paged attention
+in FP32/FP16/BF16, and small-model greedy output parity. All 29 also passed in
+an earlier RTX 4090 run. CPU logits agree with an independent Hugging Face
+Llama implementation on a small random model. The native allocator passed
+10,000 randomized operations normally and with UBSan; local macOS ASan stalled
+and remains unvalidated (Linux CI is configured for ASan/UBSan).
+
+The initial A40 attention benchmark at batch 32, context 2048, BF16,
+32 query heads / 8 KV heads / head dimension 128 measured 2.693 ms for this
+kernel versus 0.485 ms for forced flash SDPA: **18.0% of flash throughput**.
+This is one initial 100-iteration measurement, not a tuned performance result.
+Raw benchmark and test records are in `validation/a40-2026-10-01/`.
+
+**Llama 3 8B checkpoint execution and A100 performance remain unvalidated.**
+The resume targets of 1,100 tokens/s, 75% of flash SDPA, and 4x concurrent
+sequences are not established results. Attention queries/s is not full-model
+generation tokens/s.
 
 This is a static-batch inference engine, not an HTTP server. It currently uses
 token-at-a-time prefill, host-side scheduling, and fresh attention scratch buffers
@@ -34,7 +42,7 @@ first use, using [PyTorch's extension loader](https://docs.pytorch.org/docs/stab
 python3 -m venv .venv
 source .venv/bin/activate
 # On a GPU host, install the appropriate CUDA build of torch first.
-pip install -e '.[test,model]'
+pip install -e '.[test,model,cuda]'
 pytest -q
 ```
 
