@@ -25,6 +25,7 @@ def main():
     p.add_argument("--iterations",type=int,default=100)
     p.add_argument("--split-size",type=int,default=256)
     p.add_argument("--warps",type=int,choices=[1,4,8],default=1)
+    p.add_argument("--algorithm",choices=["online","tiled"],default="online")
     p.add_argument("--repeats",type=int,default=5)
     p.add_argument("--output",default="results/attention.json")
     args=p.parse_args()
@@ -42,7 +43,7 @@ def main():
     dense_k=k[tables.long()].flatten(1,2)[:,:n].transpose(1,2).contiguous()
     dense_v=v[tables.long()].flatten(1,2)[:,:n].transpose(1,2).contiguous()
     def custom():
-        return paged_attention(q,k,v,tables,lengths,backend="cuda",split_size=args.split_size,warps=args.warps)
+        return paged_attention(q,k,v,tables,lengths,backend="cuda",split_size=args.split_size,warps=args.warps,algorithm=args.algorithm)
     def flash():
         with sdpa_kernel(SDPBackend.FLASH_ATTENTION):
             return F.scaled_dot_product_attention(q[:,:,None],dense_k,dense_v,enable_gqa=True).squeeze(2)
@@ -58,7 +59,7 @@ def main():
     report={"gpu":torch.cuda.get_device_name(),"torch":torch.__version__,"cuda":torch.version.cuda,
         "batch":b,"context":n,"heads":h,"kv_heads":hkv,"head_dim":d,"dtype":"bfloat16",
         "block_size":s,"split_size":args.split_size,"iterations":args.iterations,
-        "warps":args.warps,"repeats":args.repeats,
+        "algorithm":args.algorithm,"warps":args.warps,"repeats":args.repeats,
         "paged_samples_ms":paged_samples,"flash_samples_ms":flash_samples,
         "paged_ms":paged_ms,"flash_sdpa_ms":flash_ms,"throughput_ratio":flash_ms/paged_ms,
         "paged_queries_per_second":b*1000/paged_ms,"max_abs_error":(actual-expected).abs().max().item(),

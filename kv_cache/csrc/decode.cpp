@@ -1,8 +1,8 @@
 #include <torch/extension.h>
 torch::Tensor decode_cuda(torch::Tensor q, torch::Tensor k, torch::Tensor v,
-                          torch::Tensor tables, torch::Tensor lengths, int64_t split, int64_t warps);
+                          torch::Tensor tables, torch::Tensor lengths, int64_t split, int64_t warps, bool tiled);
 torch::Tensor decode(torch::Tensor q, torch::Tensor k, torch::Tensor v,
-                     torch::Tensor tables, torch::Tensor lengths, int64_t split, int64_t warps) {
+                     torch::Tensor tables, torch::Tensor lengths, int64_t split, int64_t warps, bool tiled) {
   TORCH_CHECK(q.is_cuda(), "queries must be CUDA tensors");
   for (const auto& t : {q,k,v,tables,lengths}) {
     TORCH_CHECK(t.device()==q.device() && t.is_contiguous(), "same-device contiguous tensors required");
@@ -22,7 +22,8 @@ torch::Tensor decode(torch::Tensor q, torch::Tensor k, torch::Tensor v,
       "metadata must be int32");
   TORCH_CHECK(split>0 && split<=65536, "invalid split size");
   TORCH_CHECK(warps==1 || warps==4 || warps==8, "warps must be 1, 4, or 8");
+  TORCH_CHECK(!tiled || (split<=1024 && warps==4), "tiled attention requires split <= 1024 and warps=4");
   // Metadata values are trusted allocator output; shape checks do not synchronize the GPU.
-  return decode_cuda(q,k,v,tables,lengths,split,warps);
+  return decode_cuda(q,k,v,tables,lengths,split,warps,tiled);
 }
 PYBIND11_MODULE(TORCH_EXTENSION_NAME,m) { m.def("decode", &decode); }

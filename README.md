@@ -7,6 +7,21 @@ to Transformers. Transformers is used for tokenization and as an independent tes
 
 ## Validation status
 
+The current tiled CUDA implementation passed **93 tests** on an NVIDIA A40
+(PyTorch 2.8.0+cu128, CUDA 12.8) on October 2, 2026 UTC. At batch 32 / context
+2048 / BF16, three independent runs of nine 500-call samples measured
+**83.3–84.1% of forced flash SDPA throughput**, with custom median latency
+0.603–0.609 ms. The median run was **2.21x faster** than the previous four-warp
+online kernel rerun on the same host (1.338 ms). The 75% attention target is
+established for this A40 workload, **not for an A100**. Records, source hashes,
+and reproduction commands are in `validation/a40-tiled-2026-10-02/`.
+
+`PagedCache` now uses tiled attention by default on CUDA. Small-model greedy
+parity passes for both online and tiled variants; full Llama 3 8B parity and
+throughput remain unverified.
+
+### Earlier iterations
+
 The baseline implementation at commit `6010b59` passed all 29 correctness tests on an NVIDIA A40 with PyTorch 2.8.0+cu128
 and CUDA 12.8 on October 1, 2026, including CUDA compilation, paged attention
 in FP32/FP16/BF16, and small-model greedy output parity. All 29 also passed in
@@ -32,8 +47,9 @@ Raw results and reproduction commands are in
 `validation/a40-multiwarp-2026-10-02/`.
 
 **Llama 3 8B checkpoint execution and A100 performance remain unvalidated.**
-The resume targets of 1,100 tokens/s, 75% of flash SDPA, and 4x concurrent
-sequences are not established results. Attention queries/s is not full-model
+The resume targets of 1,100 tokens/s, approximately 90% less wasted KV memory,
+and 4x concurrent sequences on an A100 40GB are not established results.
+The attention ratio above is measured on an A40 only. Attention queries/s is not full-model
 generation tokens/s.
 
 This is a static-batch inference engine, not an HTTP server. It currently uses
@@ -101,11 +117,12 @@ CPU execution is available via `--device cpu --backend reference`, but the full
 - `kv_cache/cache.py`: device K/V storage shaped `[layers, pages, block_size,
   kv_heads, head_dim]`. Copies span every layer before either branch writes.
   A reservation returns physical token slots and padded device block tables.
-- `kv_cache/csrc/decode.cu`: one warp by default, or opt-in four/eight warps,
-  per sequence/query-head/context partition;
-  GQA maps query heads to KV heads. Warp shuffles reduce QK dots, online softmax
-  accumulates weighted V in FP32, and a second kernel merges partition outputs
-  using their maxima and exponential sums. Empty partitions have zero mass.
+- `kv_cache/csrc/decode.cu`: tiled partition attention computes QK with
+  16-lane groups, reduces softmax over shared-memory logits, then accumulates V
+  in FP32. Head dimensions are specialized; power-of-two page lookup uses shifts
+  and masks, with division fallback for other page sizes. A second kernel merges
+  partition states. The original one/four/eight-warp online kernels remain available.
+  GQA maps query heads to KV heads, and empty partitions have zero mass.
 - `kv_cache/model.py`: checkpoint loading, RMSNorm, split-half RoPE, grouped-query
   attention, SwiGLU, residuals, and the language-model head. Checkpoint names and
   shapes must match; unsupported model configurations fail explicitly.
@@ -173,11 +190,11 @@ checkpoint roundtrip, and independent Hugging Face full-forward logits. Numerica
 agreement is checked with dtype-appropriate tolerances; token parity is a stronger
 workload-specific check, not a guarantee for all floating-point executions.
 
-## Experimental multi-warp attention
+## Earlier multi-warp attention measurements
 
-The current source adds opt-in `warps=4` and `warps=8` variants. Each warp
+The earlier `a85b408` iteration added opt-in `warps=4` and `warps=8` variants. Each warp
 processes a disjoint subset of a context partition, then shared-memory reduction
-combines their softmax states. `warps=1` remains the default baseline.
+combines their softmax states. `warps=1` was the default baseline in that iteration.
 All three variants compiled and passed the expanded GPU correctness suite:
 53 tests passed, none skipped. At batch 32 / context 2048, four warps was
 fastest (1.313 ms), followed by eight (1.746 ms), then one (2.208 ms).
@@ -185,10 +202,9 @@ The four-warp partition-size sweep covered 64, 128, 256, 512, and 1024 tokens;
 256 had the lowest median latency. The 128 and 512 results were close
 (1.331 and 1.340 ms), so this is a measured configuration, not a universal optimum.
 
-Use `paged_attention(..., backend="cuda", warps=4, split_size=256)` to select
-the measured faster variant. Model generation still uses the default one-warp
-path; the multi-warp speedup is an attention-only result, not an end-to-end
-generation improvement. The full-model greedy test covers the default path.
+Those measurements cover the online algorithm. The current cache default is
+the tiled kernel described below. These historical attention-only measurements
+do not establish an end-to-end generation speedup.
 
 Compare candidates on the same GPU after the expanded correctness suite passes:
 
@@ -203,3 +219,32 @@ The benchmark now reports median latency and individual timing samples, alternat
 custom/flash timing order between repeats. Raw samples, including slower
 candidates, are retained in the validation directory. No A100 or full-checkpoint
 performance is implied by these A40 attention measurements.
+
+## Tiled attention
+
+The low-level function preserves its online default for explicit baseline use.
+Select the new kernel with:
+
+```python
+paged_attention(q, k, v, tables, lengths, backend="cuda",
+                algorithm="tiled", warps=4, split_size=256)
+```
+
+Tiled attention requires four warps and a partition size from 1 to 1024.
+It supports the same FP32/FP16/BF16 types and head dimensions (32 through 256,
+in multiples of 32). `PagedCache` defaults to `attention_algorithm="tiled"`,
+`attention_warps=4`, and `split_size=256`. To reproduce the original model path,
+set `attention_algorithm="online", attention_warps=1` when constructing it.
+
+```sh
+python -m benchmarks.attention --algorithm tiled --warps 4 --repeats 9 --iterations 500
+```
+
+The final A40 validation includes three longer confirmation runs, the online
+baseline, and a 12-shape batch/context sweep. Shorter runs varied more: at the
+main shape a five-by-100 sweep reported 91.2%, while the longer confirmations
+reported 83.3–84.1%. Use the latter for the headline result. Performance varies
+by workload; the sweep includes a 74.4% ratio at batch 8 / context 2048. Tests
+also cover all supported head sizes, non-power-of-two pages, partition tails,
+invalid padded page entries that must remain unread, extreme logits, and
+small-model greedy parity for the online and tiled paths.

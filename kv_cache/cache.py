@@ -4,10 +4,14 @@ from .attention import paged_attention
 
 class PagedCache:
     def __init__(self, layers, blocks, block_size, kv_heads, head_dim, max_context,
-                 *, device="cpu", dtype=torch.float32, backend="reference"):
+                 *, device="cpu", dtype=torch.float32, backend="reference",
+                 attention_algorithm="tiled", attention_warps=4, split_size=256):
         self.pool = BlockPool(blocks, block_size, max_context)
         self.block_size = block_size
         self.backend = backend
+        self.attention_algorithm = attention_algorithm
+        self.attention_warps = attention_warps
+        self.split_size = split_size
         self.k = torch.empty(layers, blocks, block_size, kv_heads, head_dim, device=device, dtype=dtype)
         self.v = torch.empty_like(self.k)
         self._ids = set()
@@ -42,7 +46,8 @@ class PagedCache:
         self.k[layer].flatten(0, 1)[slots] = k
         self.v[layer].flatten(0, 1)[slots] = v
         return paged_attention(q.contiguous(), self.k[layer], self.v[layer], tables, lengths,
-                               backend=self.backend)
+                               backend=self.backend, algorithm=self.attention_algorithm,
+                               warps=self.attention_warps, split_size=self.split_size)
 
     @property
     def allocated_bytes(self):

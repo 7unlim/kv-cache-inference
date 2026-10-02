@@ -96,13 +96,15 @@ def test_engine_shares_prefix_with_constrained_pool(model):
     assert paged.pool.free_blocks==3
 
 @pytest.mark.skipif(not torch.cuda.is_available(),reason="CUDA device required")
-def test_cuda_model_greedy_matches_dense():
+@pytest.mark.parametrize("algorithm,warps",[("online",1),("online",4),("tiled",4)])
+def test_cuda_model_greedy_matches_dense(algorithm,warps):
     torch.manual_seed(5)
     model=Llama(Config(vocab_size=71,hidden_size=128,intermediate_size=192,
         num_hidden_layers=2,num_attention_heads=4,num_key_value_heads=2,
         max_position_embeddings=128)).cuda().to(torch.bfloat16).eval()
     common=dict(layers=2,kv_heads=2,head_dim=32,max_context=128,device="cuda",dtype=torch.bfloat16)
-    paged=PagedCache(**common,blocks=24,block_size=16,backend="cuda")
+    paged=PagedCache(**common,blocks=24,block_size=16,backend="cuda",
+                     attention_algorithm=algorithm,attention_warps=warps)
     dense=ContiguousCache(**common,batch=3)
     prompts=[[1,2,3,4,5],[1,2,3,9],[1,2,3,4,5,7]]
     assert Engine(model,paged).generate(prompts,24)==Engine(model,dense).generate(prompts,24)
