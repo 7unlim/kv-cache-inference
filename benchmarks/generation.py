@@ -16,7 +16,9 @@ def main():
     p.add_argument("checkpoint",nargs="?")
     p.add_argument("--synthetic-weights",action="store_true",help="random Llama 3 8B-shaped weights; NOT pretrained model validation")
     p.add_argument("--batch",type=int,default=32)
-    p.add_argument("--dense-attention",choices=["sdpa","cuda"],default="sdpa",help="sdpa is independent; cuda isolates storage layout using the same tiled attention")
+    p.add_argument("--dense-attention",choices=["sdpa","cuda"],default="sdpa",help="sdpa is independent; cuda isolates storage layout using the same selected attention")
+    p.add_argument("--attention-algorithm",choices=["tiled","vectorized"],default="tiled")
+    p.add_argument("--split-size",type=int,default=256)
     p.add_argument("--text-file",help="optional fixed text corpus; deterministic token windows with BOS")
     p.add_argument("--prompt-length",type=int,default=128)
     p.add_argument("--new-tokens",type=int,default=128)
@@ -58,14 +60,15 @@ def main():
     report={"gpu":torch.cuda.get_device_name(),"torch":torch.__version__,"cuda":torch.version.cuda,
         "model":model_record(model,args.checkpoint),"parameters":vars(args),"prompt_source":prompt_source,
         "scope":"static batch; benchmark prompts; EOS disabled; end-to-end includes prefill",
-        "dense_attention_comparison":"independent SDPA auto dispatch" if args.dense_attention=="sdpa" else "same tiled CUDA arithmetic; contiguous maximum-context reservation; storage-layout control"}
+        "dense_attention_comparison":"independent SDPA auto dispatch" if args.dense_attention=="sdpa" else "same selected CUDA arithmetic; contiguous maximum-context reservation; storage-layout control"}
+    attention=dict(attention_algorithm=args.attention_algorithm,attention_warps=4,split_size=args.split_size)
     outputs={}
     for backend in ["paged","contiguous"]:
         if backend=="paged":
             blocks=args.blocks or args.batch*((args.prompt_length+args.new_tokens-1+15)//16)
-            cache=PagedCache(**common,blocks=blocks,block_size=16,backend="cuda")
+            cache=PagedCache(**common,blocks=blocks,block_size=16,backend="cuda",**attention)
         else:
-            cache=ContiguousCache(**common,batch=args.batch,backend=args.dense_attention)
+            cache=ContiguousCache(**common,batch=args.batch,backend=args.dense_attention,**attention)
         engine=Engine(model,cache)
         engine.generate(prompts,min(2,args.new_tokens),batched_prefill=not args.tokenwise_prefill)  # compile and warm up
         torch.cuda.synchronize(); torch.cuda.reset_peak_memory_stats()

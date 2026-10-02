@@ -25,7 +25,7 @@ def main():
     p.add_argument("--iterations",type=int,default=100)
     p.add_argument("--split-size",type=int,default=256)
     p.add_argument("--warps",type=int,choices=[1,4,8],default=1)
-    p.add_argument("--algorithm",choices=["online","tiled"],default="online")
+    p.add_argument("--algorithm",choices=["online","tiled","vectorized"],default="online")
     p.add_argument("--repeats",type=int,default=5)
     p.add_argument("--output",default="results/attention.json")
     args=p.parse_args()

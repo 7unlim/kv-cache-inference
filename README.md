@@ -272,3 +272,17 @@ uses the same tiled kernel over contiguous maximum-context storage, and is expli
 reported as a storage-layout control. Capacity uses fixed lengths
 128,257,512,769,1024,1537,2048,3073 and four decode writes, without shared prefixes.
 A 38 GiB allocator limit constrains allocations but does not emulate 40GB GPU hardware.
+
+## Optional vectorized A100 candidate
+
+`algorithm="vectorized", warps=4` uses packed adjacent K/V loads for FP16/BF16
+head dimension 128, with the existing tiled path as fallback for other shapes.
+The same-session A100 80GB batch32/context2048 measurement improved from 0.490 ms
+to 0.418 ms (1.17x), reaching **62.2% of flash throughput** in five-by-100 samples.
+This is below 75% and has not yet received a full-checkpoint generation validation.
+It remains opt-in; the tiled default and its validated model results are preserved.
+See `validation/a100-vectorized-2026-10-02/` for raw results and limitations.
+
+Use `--attention-algorithm vectorized` in `benchmarks.generation` to measure the
+candidate. `--dense-attention cuda` applies the selected algorithm and partition
+size to both layouts; the default `sdpa` comparison remains independent.

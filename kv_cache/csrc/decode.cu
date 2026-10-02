@@ -56,7 +56,10 @@ __global__ void partial(const T* q,const T* k,const T* v,const int* tables,
 }
 // Two-pass partition attention: compute all logits, normalize once, then reduce V.
 // Unlike online softmax this avoids rescaling the accumulator at every token.
-template<typename T, int D, int WARPS>
+template<typename T, int N>
+struct alignas(sizeof(T)*N > 16 ? 16 : sizeof(T)*N) Packed { T data[N]; };
+
+template<typename T, int D, int WARPS, bool VECTOR=false>
 __global__ void tiled_partial(const T* q,const T* k,const T* v,const int* tables,
                              const int* lengths,float* out,float* maxima,float* sums,
                              int H,int HK,int S,int width,int splits,int split) {
@@ -76,7 +79,7 @@ __global__ void tiled_partial(const T* q,const T* k,const T* v,const int* tables
   int glane=tid%GROUP, group=tid/GROUP;
   float query[D/GROUP];
   #pragma unroll
-  for(int j=0;j<D/GROUP;++j) query[j]=float(q[(b*H+h)*D+j*GROUP+glane]);
+  for(int j=0;j<D/GROUP;++j) query[j]=float(q[(b*H+h)*D+(VECTOR ? glane*(D/GROUP)+j : j*GROUP+glane)]);
   for(int i=group;i<n;i+=32*WARPS/GROUP) {
     int t=start+i;
     int page=page_shift>=0 ? t>>page_shift : t/S;
@@ -84,8 +87,15 @@ __global__ void tiled_partial(const T* q,const T* k,const T* v,const int* tables
     int physical=tables[b*width+page];
     int64_t base=((int64_t(physical)*S+offset)*HK+kv_head)*D;
     float dot=0;
-    #pragma unroll
-    for(int j=0;j<D/GROUP;++j) dot+=query[j]*float(k[base+j*GROUP+glane]);
+    if constexpr (VECTOR) {
+      // D=128: each 16-lane group loads one contiguous 256-byte BF16 head.
+      auto key=*reinterpret_cast<const Packed<T,D/GROUP>*>(k+base+glane*(D/GROUP));
+      #pragma unroll
+      for(int j=0;j<D/GROUP;++j) dot+=query[j]*float(key.data[j]);
+    } else {
+      #pragma unroll
+      for(int j=0;j<D/GROUP;++j) dot+=query[j]*float(k[base+j*GROUP+glane]);
+    }
     #pragma unroll
     for(int offset=GROUP/2;offset;offset/=2)
       dot+=__shfl_down_sync(__activemask(),dot,offset,GROUP);
@@ -119,11 +129,17 @@ __global__ void tiled_partial(const T* q,const T* k,const T* v,const int* tables
     int physical=tables[b*width+page];
     int64_t base=((int64_t(physical)*S+offset)*HK+kv_head)*D;
     float weight=logits[i];
-    #pragma unroll
-    for(int j=0;j<D/32;++j) acc[j]+=weight*float(v[base+j*32+lane]);
+    if constexpr (VECTOR) {
+      auto value=*reinterpret_cast<const Packed<T,D/32>*>(v+base+lane*(D/32));
+      #pragma unroll
+      for(int j=0;j<D/32;++j) acc[j]+=weight*float(value.data[j]);
+    } else {
+      #pragma unroll
+      for(int j=0;j<D/32;++j) acc[j]+=weight*float(v[base+j*32+lane]);
+    }
   }
   #pragma unroll
-  for(int j=0;j<D/32;++j) values[w][j*32+lane]=acc[j];
+  for(int j=0;j<D/32;++j) values[w][VECTOR ? lane*(D/32)+j : j*32+lane]=acc[j];
   __syncthreads();
   if(w==0) {
     #pragma unroll
@@ -153,7 +169,7 @@ __global__ void merge(const float* partials,const float* maxima,const float* sum
   for(int j=0;j<D/32;++j) out[int64_t(row)*D+j*32+lane]=T(acc[j]/total);
 }
 torch::Tensor decode_cuda(torch::Tensor q,torch::Tensor k,torch::Tensor v,
-                          torch::Tensor tables,torch::Tensor lengths,int64_t split,int64_t warps,bool tiled) {
+                          torch::Tensor tables,torch::Tensor lengths,int64_t split,int64_t warps,int64_t algorithm) {
   c10::cuda::CUDAGuard guard(q.device());
   int B=q.size(0),H=q.size(1),D=q.size(2),S=k.size(1),width=tables.size(1);
   int splits=(width*S+split-1)/split;
@@ -164,7 +180,10 @@ torch::Tensor decode_cuda(torch::Tensor q,torch::Tensor k,torch::Tensor v,
   auto stream=at::cuda::getCurrentCUDAStream();
 #define LAUNCH_TILED(DIM) tiled_partial<scalar_t,DIM,4><<<dim3(H,B,splits),128,split*sizeof(float),stream>>>(q.data_ptr<scalar_t>(),k.data_ptr<scalar_t>(),v.data_ptr<scalar_t>(),tables.data_ptr<int>(),lengths.data_ptr<int>(),parts.data_ptr<float>(),maxima.data_ptr<float>(),sums.data_ptr<float>(),H,k.size(2),S,width,splits,split)
   AT_DISPATCH_FLOATING_TYPES_AND2(at::ScalarType::Half,at::ScalarType::BFloat16,q.scalar_type(),"paged_decode",[&] {
-    if (tiled) {
+    if (algorithm==2 && D==128 && q.scalar_type()!=torch::kFloat32) {
+      tiled_partial<scalar_t,128,4,true><<<dim3(H,B,splits),128,split*sizeof(float),stream>>>(q.data_ptr<scalar_t>(),k.data_ptr<scalar_t>(),v.data_ptr<scalar_t>(),tables.data_ptr<int>(),lengths.data_ptr<int>(),parts.data_ptr<float>(),maxima.data_ptr<float>(),sums.data_ptr<float>(),H,k.size(2),S,width,splits,split);
+    }
+    else if (algorithm!=0) {
       switch(D) {
         case 32: LAUNCH_TILED(32); break;
         case 64: LAUNCH_TILED(64); break;

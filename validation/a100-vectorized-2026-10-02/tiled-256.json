@@ -1,0 +1,37 @@
+{
+  "gpu": "NVIDIA A100 80GB PCIe",
+  "torch": "2.8.0+cu128",
+  "cuda": "12.8",
+  "batch": 32,
+  "context": 2048,
+  "heads": 32,
+  "kv_heads": 8,
+  "head_dim": 128,
+  "dtype": "bfloat16",
+  "block_size": 16,
+  "split_size": 256,
+  "iterations": 100,
+  "algorithm": "tiled",
+  "warps": 4,
+  "repeats": 5,
+  "paged_samples_ms": [
+    0.4563248062133789,
+    0.4901219177246094,
+    0.4858899307250977,
+    0.49191967010498044,
+    0.4900624084472656
+  ],
+  "flash_samples_ms": [
+    0.2568351936340332,
+    0.2658707237243652,
+    0.26133920669555666,
+    0.26292640686035157,
+    0.26140159606933594
+  ],
+  "paged_ms": 0.4900624084472656,
+  "flash_sdpa_ms": 0.26140159606933594,
+  "throughput_ratio": 0.5334047083871863,
+  "paged_queries_per_second": 65297.80584760653,
+  "max_abs_error": 0.0009765625,
+  "scope": "attention only; includes custom scratch allocation; excludes page construction and dense gathering"
+}

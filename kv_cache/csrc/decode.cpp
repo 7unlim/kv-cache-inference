@@ -1,8 +1,8 @@
 #include <torch/extension.h>
 torch::Tensor decode_cuda(torch::Tensor q, torch::Tensor k, torch::Tensor v,
-                          torch::Tensor tables, torch::Tensor lengths, int64_t split, int64_t warps, bool tiled);
+                          torch::Tensor tables, torch::Tensor lengths, int64_t split, int64_t warps, int64_t algorithm);
 torch::Tensor decode(torch::Tensor q, torch::Tensor k, torch::Tensor v,
-                     torch::Tensor tables, torch::Tensor lengths, int64_t split, int64_t warps, bool tiled) {
+                     torch::Tensor tables, torch::Tensor lengths, int64_t split, int64_t warps, int64_t algorithm) {
   TORCH_CHECK(q.is_cuda(), "queries must be CUDA tensors");
   for (const auto& t : {q,k,v,tables,lengths}) {
     TORCH_CHECK(t.device()==q.device() && t.is_contiguous(), "same-device contiguous tensors required");
@@ -20,10 +20,11 @@ torch::Tensor decode(torch::Tensor q, torch::Tensor k, torch::Tensor v,
       || q.scalar_type()==torch::kFloat32, "unsupported dtype");
   TORCH_CHECK(tables.scalar_type()==torch::kInt32 && lengths.scalar_type()==torch::kInt32,
       "metadata must be int32");
+  TORCH_CHECK(algorithm>=0 && algorithm<=2, "invalid attention algorithm");
   TORCH_CHECK(split>0 && split<=65536, "invalid split size");
   TORCH_CHECK(warps==1 || warps==4 || warps==8, "warps must be 1, 4, or 8");
-  TORCH_CHECK(!tiled || (split<=1024 && warps==4), "tiled attention requires split <= 1024 and warps=4");
+  TORCH_CHECK(algorithm==0 || (split<=1024 && warps==4), "tiled/vectorized attention requires split <= 1024 and warps=4");
   // Metadata values are trusted allocator output; shape checks do not synchronize the GPU.
-  return decode_cuda(q,k,v,tables,lengths,split,warps,tiled);
+  return decode_cuda(q,k,v,tables,lengths,split,warps,algorithm);
 }
 PYBIND11_MODULE(TORCH_EXTENSION_NAME,m) { m.def("decode", &decode); }

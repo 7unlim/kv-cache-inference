@@ -12,12 +12,12 @@ def extension():
 
 def paged_attention(q, k, v, tables, lengths, *, backend="reference", split_size=256, warps=1, algorithm="online"):
     """q [B,H,D]; pages [P,S,Hkv,D]; one query at each sequence's last token."""
-    if algorithm not in ("online", "tiled"):
-        raise ValueError("algorithm must be online or tiled")
+    if algorithm not in ("online", "tiled", "vectorized"):
+        raise ValueError("algorithm must be online, tiled, or vectorized")
     if backend == "cuda":
         if not q.is_cuda:
             raise ValueError("CUDA backend requires CUDA tensors")
-        return extension().decode(q, k, v, tables, lengths, split_size, warps, algorithm == "tiled")
+        return extension().decode(q, k, v, tables, lengths, split_size, warps, {"online":0,"tiled":1,"vectorized":2}[algorithm])
     if backend != "reference":
         raise ValueError(f"unknown attention backend: {backend}")
     outputs = []

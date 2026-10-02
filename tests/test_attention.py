@@ -3,7 +3,7 @@ import torch
 import torch.nn.functional as F
 from kv_cache.attention import paged_attention
 
-@pytest.mark.parametrize("warps,algorithm",[(1,"online"),(4,"online"),(8,"online"),(4,"tiled")])
+@pytest.mark.parametrize("warps,algorithm",[(1,"online"),(4,"online"),(8,"online"),(4,"tiled"),(4,"vectorized")])
 @pytest.mark.parametrize("dtype",[torch.float32,torch.float16,torch.bfloat16])
 @pytest.mark.parametrize("head_dim",[32,64,128,256])
 def test_cuda_ragged_permuted_pages(dtype,head_dim,warps,algorithm):
@@ -62,3 +62,18 @@ def test_tiled_softmax_extreme_scores(scale):
     expected=paged_attention(q,k,v,tables,lengths)
     actual=paged_attention(q,k,v,tables,lengths,backend="cuda",algorithm="tiled",warps=4)
     torch.testing.assert_close(actual,expected,atol=2e-4,rtol=2e-4)
+
+@pytest.mark.parametrize("dtype",[torch.float16,torch.bfloat16])
+@pytest.mark.parametrize("split_size",[1,17,1024])
+def test_vectorized_non_power_of_two_pages(dtype,split_size):
+    if not torch.cuda.is_available(): pytest.skip("CUDA device required")
+    torch.manual_seed(29)
+    q=torch.randn(2,8,128,device="cuda",dtype=dtype)
+    k=torch.randn(10,3,2,128,device="cuda",dtype=dtype); v=torch.randn_like(k)
+    tables=torch.tensor([[7,-1,-1,-1,-1],[9,1,8,2,6]],device="cuda",dtype=torch.int32)
+    lengths=torch.tensor([1,13],device="cuda",dtype=torch.int32)
+    expected=paged_attention(q,k,v,tables,lengths)
+    actual=paged_attention(q,k,v,tables,lengths,backend="cuda",algorithm="vectorized",
+                           warps=4,split_size=split_size)
+    tol=3e-3 if dtype==torch.float16 else 3e-2
+    torch.testing.assert_close(actual,expected,atol=tol,rtol=tol)

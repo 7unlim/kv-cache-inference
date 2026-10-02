@@ -72,12 +72,16 @@ class PagedCache:
 class ContiguousCache:
     """Independent dense pre-allocation baseline, one slot per sequence."""
     def __init__(self, layers, batch, max_context, kv_heads, head_dim,
-                 *, device="cpu", dtype=torch.float32, backend="sdpa"):
+                 *, device="cpu", dtype=torch.float32, backend="sdpa",
+                 attention_algorithm="tiled", attention_warps=4, split_size=256):
         if backend not in ("sdpa","cuda"):
             raise ValueError("dense backend must be sdpa or cuda")
         if backend=="cuda" and max_context%16:
             raise ValueError("controlled CUDA baseline requires max_context divisible by 16")
         self.backend=backend
+        self.attention_algorithm=attention_algorithm
+        self.attention_warps=attention_warps
+        self.split_size=split_size
         self.k = torch.empty(layers, batch, max_context, kv_heads, head_dim, device=device, dtype=dtype)
         self.v = torch.empty_like(self.k)
         self.max_context = max_context
@@ -136,7 +140,9 @@ class ContiguousCache:
             lengths=(positions+1).to(torch.int32)
             keys=self.k[layer].reshape(-1,16,self.k.shape[-2],self.k.shape[-1])
             values=self.v[layer].reshape_as(keys)
-            return paged_attention(q.contiguous(),keys,values,tables,lengths,backend="cuda",algorithm="tiled",warps=4)
+            return paged_attention(q.contiguous(),keys,values,tables,lengths,backend="cuda",
+                                   algorithm=self.attention_algorithm,warps=self.attention_warps,
+                                   split_size=self.split_size)
         # Batched dense baseline for equal-length requests (the throughput workload).
         if len({pos for _, pos in state}) == 1:
             rows = torch.tensor([row for row, _ in state], device=q.device)
