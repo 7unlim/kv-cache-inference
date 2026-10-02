@@ -108,3 +108,45 @@ def test_cuda_model_greedy_matches_dense(algorithm,warps):
     dense=ContiguousCache(**common,batch=3)
     prompts=[[1,2,3,4,5],[1,2,3,9],[1,2,3,4,5,7]]
     assert Engine(model,paged).generate(prompts,24)==Engine(model,dense).generate(prompts,24)
+
+
+def test_batched_prefill_matches_independent_hf_and_continued_decode(model):
+    from transformers import LlamaConfig,LlamaForCausalLM
+    from dataclasses import asdict
+    hf=LlamaForCausalLM(LlamaConfig(**asdict(model.config))).eval()
+    hf.load_state_dict(model.state_dict(),strict=True)
+    paged,dense=caches(model)
+    tokens=torch.tensor([[1,3,5,7,9],[2,4,6,8,10]])
+    for cache in (paged,dense):
+        for seq in (0,1): cache.create(seq)
+    actual=model.prefill(tokens,[0,1],paged)
+    with torch.inference_mode(): expected=hf(tokens).logits[:,-1]
+    torch.testing.assert_close(actual,expected,rtol=2e-5,atol=2e-6)
+    for column in tokens.t(): reference=model.step(column,[0,1],dense)
+    torch.testing.assert_close(actual,reference,rtol=2e-5,atol=2e-6)
+    for token in (11,12,13):
+        next_tokens=torch.tensor([token,token+1])
+        torch.testing.assert_close(model.step(next_tokens,[0,1],paged),
+                                   model.step(next_tokens,[0,1],dense),rtol=2e-5,atol=2e-6)
+
+
+def test_prefill_oom_preserves_empty_cache(model):
+    c=model.config
+    cache=PagedCache(c.num_hidden_layers,1,4,c.num_key_value_heads,c.head_dim,64)
+    for i in (0,1): cache.create(i)
+    with pytest.raises(RuntimeError): model.prefill(torch.tensor([[1,2],[3,4]]),[0,1],cache)
+    assert cache.pool.free_blocks==1
+    assert cache.pool.length(0)==cache.pool.length(1)==0
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(),reason="CUDA device required")
+def test_controlled_dense_layout_exact_greedy_parity():
+    torch.manual_seed(51)
+    model=Llama(Config(vocab_size=71,hidden_size=128,intermediate_size=192,
+        num_hidden_layers=2,num_attention_heads=4,num_key_value_heads=2,
+        max_position_embeddings=128)).cuda().to(torch.bfloat16).eval()
+    common=dict(layers=2,kv_heads=2,head_dim=32,max_context=128,device="cuda",dtype=torch.bfloat16)
+    paged=PagedCache(**common,blocks=24,block_size=16,backend="cuda")
+    dense=ContiguousCache(**common,batch=3,backend="cuda")
+    for prompts in ([[1,2,3,4],[1,2,3,8],[1,2,3,9]],[[1,2,3],[1,2,3,8,9],[1,2,3,7]]):
+        assert Engine(model,paged).generate(prompts,24)==Engine(model,dense).generate(prompts,24)

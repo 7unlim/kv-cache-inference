@@ -1,0 +1,114 @@
+{
+  "gpu": "NVIDIA A100 80GB PCIe",
+  "torch": "2.8.0+cu128",
+  "cuda": "12.8",
+  "model": {
+    "weights": "checkpoint",
+    "checkpoint": "checkpoints/Meta-Llama-3-8B",
+    "config": {
+      "vocab_size": 128256,
+      "hidden_size": 4096,
+      "intermediate_size": 14336,
+      "num_hidden_layers": 32,
+      "num_attention_heads": 32,
+      "num_key_value_heads": 8,
+      "rms_norm_eps": 1e-05,
+      "rope_theta": 500000.0,
+      "max_position_embeddings": 8192,
+      "tie_word_embeddings": false
+    },
+    "parameter_count": 8030261248,
+    "parameter_bytes": 16060522496,
+    "checkpoint_loaded": true,
+    "source_revision": "8cde5ca8380496c9a6cc7ef3a8b46a0372a1d920"
+  },
+  "parameters": {
+    "checkpoint": "checkpoints/Meta-Llama-3-8B",
+    "synthetic_weights": false,
+    "batch": 32,
+    "prompt_length": 128,
+    "new_tokens": 128,
+    "max_context": 4096,
+    "blocks": 0,
+    "budget_gib": 38.0,
+    "iterations": 1,
+    "output": "results/generation-initial.json"
+  },
+  "scope": "static batch; synthetic token prompts; EOS disabled; end-to-end includes tokenwise prefill; dense baseline uses SDPA auto dispatch",
+  "paged": {
+    "seconds": 7.727734919637442,
+    "output_tokens_per_second": 530.0388849508014,
+    "peak_allocated_bytes": 17160614400,
+    "cache_reserved_bytes": 1073741824
+  },
+  "contiguous": {
+    "seconds": 8.185950990766287,
+    "output_tokens_per_second": 500.36947504575437,
+    "peak_allocated_bytes": 33291910144,
+    "cache_reserved_bytes": 17179869184
+  },
+  "token_for_token_match": false,
+  "mismatched_token_count": 264,
+  "first_mismatches": [
+    {
+      "sequence": 2,
+      "position": 4,
+      "paged": 108,
+      "contiguous": 222
+    },
+    {
+      "sequence": 2,
+      "position": 6,
+      "paged": 98,
+      "contiguous": 222
+    },
+    {
+      "sequence": 2,
+      "position": 8,
+      "paged": 123,
+      "contiguous": 222
+    },
+    {
+      "sequence": 2,
+      "position": 9,
+      "paged": 146,
+      "contiguous": 145
+    },
+    {
+      "sequence": 2,
+      "position": 10,
+      "paged": 229,
+      "contiguous": 222
+    },
+    {
+      "sequence": 2,
+      "position": 12,
+      "paged": 116,
+      "contiguous": 222
+    },
+    {
+      "sequence": 2,
+      "position": 14,
+      "paged": 110,
+      "contiguous": 222
+    },
+    {
+      "sequence": 2,
+      "position": 16,
+      "paged": 116,
+      "contiguous": 222
+    },
+    {
+      "sequence": 2,
+      "position": 17,
+      "paged": 146,
+      "contiguous": 145
+    },
+    {
+      "sequence": 2,
+      "position": 18,
+      "paged": 224,
+      "contiguous": 222
+    }
+  ]
+}

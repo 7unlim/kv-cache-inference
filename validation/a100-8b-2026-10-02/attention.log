@@ -1,0 +1,47 @@
+W1002 16:04:39.455000 1301 torch/utils/cpp_extension.py:2425] TORCH_CUDA_ARCH_LIST is not set, all archs for visible cards are included for compilation. 
+W1002 16:04:39.455000 1301 torch/utils/cpp_extension.py:2425] If this is not desired, please set os.environ['TORCH_CUDA_ARCH_LIST'] to specific architectures.
+{
+  "gpu": "NVIDIA A100 80GB PCIe",
+  "torch": "2.8.0+cu128",
+  "cuda": "12.8",
+  "batch": 32,
+  "context": 2048,
+  "heads": 32,
+  "kv_heads": 8,
+  "head_dim": 128,
+  "dtype": "bfloat16",
+  "block_size": 16,
+  "split_size": 256,
+  "iterations": 500,
+  "algorithm": "tiled",
+  "warps": 4,
+  "repeats": 9,
+  "paged_samples_ms": [
+    0.4870341796875,
+    0.4938189392089844,
+    0.5017043151855469,
+    0.49508865356445314,
+    0.49162893676757813,
+    0.4943025817871094,
+    0.49146783447265624,
+    0.495997314453125,
+    0.49529534912109374
+  ],
+  "flash_samples_ms": [
+    0.266520263671875,
+    0.27087646484375,
+    0.272385986328125,
+    0.26903533935546875,
+    0.2748557434082031,
+    0.2720159912109375,
+    0.2717033081054688,
+    0.2727201843261719,
+    0.27121279907226564
+  ],
+  "paged_ms": 0.4943025817871094,
+  "flash_sdpa_ms": 0.2717033081054688,
+  "throughput_ratio": 0.5496700161329288,
+  "paged_queries_per_second": 64737.675219713994,
+  "max_abs_error": 0.0009765625,
+  "scope": "attention only; includes custom scratch allocation; excludes page construction and dense gathering"
+}

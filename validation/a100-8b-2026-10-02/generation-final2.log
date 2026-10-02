@@ -1,0 +1,124 @@
+W1002 16:18:49.730000 6668 torch/utils/cpp_extension.py:2425] TORCH_CUDA_ARCH_LIST is not set, all archs for visible cards are included for compilation. 
+W1002 16:18:49.730000 6668 torch/utils/cpp_extension.py:2425] If this is not desired, please set os.environ['TORCH_CUDA_ARCH_LIST'] to specific architectures.
+greedy output mismatch
+{
+  "gpu": "NVIDIA A100 80GB PCIe",
+  "torch": "2.8.0+cu128",
+  "cuda": "12.8",
+  "model": {
+    "weights": "checkpoint",
+    "checkpoint": "checkpoints/Meta-Llama-3-8B",
+    "config": {
+      "vocab_size": 128256,
+      "hidden_size": 4096,
+      "intermediate_size": 14336,
+      "num_hidden_layers": 32,
+      "num_attention_heads": 32,
+      "num_key_value_heads": 8,
+      "rms_norm_eps": 1e-05,
+      "rope_theta": 500000.0,
+      "max_position_embeddings": 8192,
+      "tie_word_embeddings": false
+    },
+    "parameter_count": 8030261248,
+    "parameter_bytes": 16060522496,
+    "checkpoint_loaded": true,
+    "source_revision": "8cde5ca8380496c9a6cc7ef3a8b46a0372a1d920"
+  },
+  "parameters": {
+    "checkpoint": "checkpoints/Meta-Llama-3-8B",
+    "synthetic_weights": false,
+    "batch": 32,
+    "text_file": null,
+    "prompt_length": 128,
+    "new_tokens": 128,
+    "max_context": 4096,
+    "blocks": 0,
+    "tokenwise_prefill": false,
+    "budget_gib": 38.0,
+    "iterations": 3,
+    "output": "results/generation-final2.json"
+  },
+  "prompt_source": {
+    "kind": "uniform_random_token_ids",
+    "seed": 42,
+    "token_ids_sha256": "15caec076a3af90fcb267126f2d3a7fa6eef143a532a04d943d9eecce8c145c5"
+  },
+  "scope": "static batch; benchmark prompts; EOS disabled; end-to-end includes prefill; dense baseline uses SDPA auto dispatch",
+  "paged": {
+    "seconds": 3.0023989733308554,
+    "output_tokens_per_second": 1364.2424062835014,
+    "peak_allocated_bytes": 17681850368,
+    "cache_reserved_bytes": 1073741824
+  },
+  "contiguous": {
+    "seconds": 3.3898268093665442,
+    "output_tokens_per_second": 1208.321318564773,
+    "peak_allocated_bytes": 33787945472,
+    "cache_reserved_bytes": 17179869184
+  },
+  "token_for_token_match": false,
+  "mismatched_token_count": 409,
+  "first_mismatches": [
+    {
+      "sequence": 2,
+      "position": 6,
+      "paged": 98,
+      "contiguous": 222
+    },
+    {
+      "sequence": 2,
+      "position": 8,
+      "paged": 123,
+      "contiguous": 222
+    },
+    {
+      "sequence": 2,
+      "position": 9,
+      "paged": 146,
+      "contiguous": 145
+    },
+    {
+      "sequence": 2,
+      "position": 10,
+      "paged": 229,
+      "contiguous": 222
+    },
+    {
+      "sequence": 2,
+      "position": 12,
+      "paged": 98,
+      "contiguous": 222
+    },
+    {
+      "sequence": 2,
+      "position": 14,
+      "paged": 105,
+      "contiguous": 222
+    },
+    {
+      "sequence": 2,
+      "position": 16,
+      "paged": 116,
+      "contiguous": 222
+    },
+    {
+      "sequence": 2,
+      "position": 18,
+      "paged": 122,
+      "contiguous": 222
+    },
+    {
+      "sequence": 2,
+      "position": 19,
+      "paged": 220,
+      "contiguous": 145
+    },
+    {
+      "sequence": 2,
+      "position": 20,
+      "paged": 145,
+      "contiguous": 222
+    }
+  ]
+}

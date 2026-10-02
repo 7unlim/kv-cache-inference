@@ -84,14 +84,22 @@ class Llama(nn.Module):
         if config.tie_word_embeddings:
             self.lm_head.weight = self.model.embed_tokens.weight
 
-    def rope(self, x, positions):
+    def rope_factors(self, positions, dtype):
+        d=self.config.head_dim
+        freq=1.0/(self.config.rope_theta**(torch.arange(0,d,2,device=positions.device,dtype=torch.float32)/d))
+        angle=positions.float()[:,None]*freq[None,:]
+        angle=torch.cat((angle,angle),-1)[:,None,:]
+        return angle.cos().to(dtype),angle.sin().to(dtype)
+
+    @staticmethod
+    def apply_rope(x, factors):
         # HF Llama uses split-half rotation, not adjacent even/odd pairs.
-        d = self.config.head_dim
-        freq = 1.0/(self.config.rope_theta**(torch.arange(0,d,2,device=x.device,dtype=torch.float32)/d))
-        angle = positions.float()[:, None]*freq[None, :]
-        angle = torch.cat((angle, angle), -1)[:, None, :]
-        a, b = x.chunk(2, dim=-1)
-        return x*angle.cos().to(x.dtype)+torch.cat((-b,a), -1)*angle.sin().to(x.dtype)
+        cosine,sine=factors
+        a,b=x.chunk(2,dim=-1)
+        return x*cosine+torch.cat((-b,a),-1)*sine
+
+    def rope(self, x, positions):
+        return self.apply_rope(x,self.rope_factors(positions,x.dtype))
 
     @torch.inference_mode()
     def step(self, tokens, ids, cache):
@@ -103,17 +111,46 @@ class Llama(nn.Module):
             raise ValueError("model context limit exceeded")
         positions = torch.tensor(lengths, device=tokens.device)
         x = self.model.embed_tokens(tokens)
+        factors = self.rope_factors(positions,x.dtype)
         state = cache.begin(ids)
         # If device execution fails after begin(), discard these sequences.
         for index, layer in enumerate(self.model.layers):
             norm = layer.input_layernorm(x)
             attn = layer.self_attn
-            q = self.rope(attn.q_proj(norm).view(-1,c.num_attention_heads,c.head_dim), positions)
-            k = self.rope(attn.k_proj(norm).view(-1,c.num_key_value_heads,c.head_dim), positions)
+            q = self.apply_rope(attn.q_proj(norm).view(-1,c.num_attention_heads,c.head_dim), factors)
+            k = self.apply_rope(attn.k_proj(norm).view(-1,c.num_key_value_heads,c.head_dim), factors)
             v = attn.v_proj(norm).view(-1,c.num_key_value_heads,c.head_dim)
             x = x+attn.o_proj(cache.attend(index,q,k,v,state).flatten(1))
             x = x+layer.mlp(layer.post_attention_layernorm(x))
         return self.lm_head(self.model.norm(x))
+
+    @torch.inference_mode()
+    def prefill(self, tokens, ids, cache):
+        """Batched causal prompt pass for equal-length, initially empty sequences."""
+        if tokens.ndim != 2 or tokens.shape[0] != len(ids) or not ids:
+            raise ValueError("expected a nonempty batch of equal-length prompts")
+        b,n=tokens.shape
+        if not 0 < n <= self.config.max_position_embeddings:
+            raise ValueError("invalid prompt length")
+        c=self.config
+        positions=torch.arange(n,device=tokens.device).repeat(b)
+        x=self.model.embed_tokens(tokens)
+        factors=self.rope_factors(positions,x.dtype)
+        state=cache.begin_prefill(ids,n)
+        for index,layer in enumerate(self.model.layers):
+            norm=layer.input_layernorm(x)
+            attn=layer.self_attn
+            q=self.apply_rope(attn.q_proj(norm).reshape(-1,c.num_attention_heads,c.head_dim),factors)
+            k=self.apply_rope(attn.k_proj(norm).reshape(-1,c.num_key_value_heads,c.head_dim),factors)
+            q=q.view(b,n,c.num_attention_heads,c.head_dim)
+            k=k.view(b,n,c.num_key_value_heads,c.head_dim)
+            v=attn.v_proj(norm).view(b,n,c.num_key_value_heads,c.head_dim)
+            cache.write_prefill(index,k,v,state)
+            out=F.scaled_dot_product_attention(q.transpose(1,2),k.transpose(1,2),
+                v.transpose(1,2),is_causal=True,enable_gqa=True).transpose(1,2).reshape(b,n,-1)
+            x=x+attn.o_proj(out)
+            x=x+layer.mlp(layer.post_attention_layernorm(x))
+        return self.lm_head(self.model.norm(x[:,-1]))
 
     @classmethod
     def from_checkpoint(cls, directory, *, device="cuda", dtype=torch.bfloat16):

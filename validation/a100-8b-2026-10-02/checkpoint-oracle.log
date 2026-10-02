@@ -1,0 +1,32 @@
+`torch_dtype` is deprecated! Use `dtype` instead!
+Loading checkpoint shards:   0%|          | 0/4 [00:00<?, ?it/s]Loading checkpoint shards: 100%|██████████| 4/4 [00:00<00:00, 163.44it/s]
+{
+  "model": {
+    "weights": "checkpoint",
+    "checkpoint": "checkpoints/Meta-Llama-3-8B",
+    "config": {
+      "vocab_size": 128256,
+      "hidden_size": 4096,
+      "intermediate_size": 14336,
+      "num_hidden_layers": 32,
+      "num_attention_heads": 32,
+      "num_key_value_heads": 8,
+      "rms_norm_eps": 1e-05,
+      "rope_theta": 500000.0,
+      "max_position_embeddings": 8192,
+      "tie_word_embeddings": false
+    },
+    "parameter_count": 8030261248,
+    "parameter_bytes": 16060522496,
+    "checkpoint_loaded": true,
+    "source_revision": "8cde5ca8380496c9a6cc7ef3a8b46a0372a1d920"
+  },
+  "gpu": "NVIDIA A100 80GB PCIe",
+  "scope": "two random-token prompts, length 128, pretrained BF16 prefill logits versus Hugging Face SDPA",
+  "max_abs_logit_error": 0.146484375,
+  "mean_abs_logit_error": 0.028706027194857597,
+  "argmax_match": [
+    true,
+    true
+  ]
+}

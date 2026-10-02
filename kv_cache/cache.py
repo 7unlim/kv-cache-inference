@@ -8,6 +8,7 @@ class PagedCache:
                  attention_algorithm="tiled", attention_warps=4, split_size=256):
         self.pool = BlockPool(blocks, block_size, max_context)
         self.block_size = block_size
+        self.max_context = max_context
         self.backend = backend
         self.attention_algorithm = attention_algorithm
         self.attention_warps = attention_warps
@@ -49,6 +50,21 @@ class PagedCache:
                                backend=self.backend, algorithm=self.attention_algorithm,
                                warps=self.attention_warps, split_size=self.split_size)
 
+    def begin_prefill(self, ids, length):
+        if not ids or len(set(ids)) != len(ids) or not 0 < length <= self.max_context:
+            raise ValueError("invalid prefill request")
+        if any(self.pool.length(i) != 0 for i in ids):
+            raise ValueError("batched prefill requires empty sequences")
+        needed=len(ids)*((length+self.block_size-1)//self.block_size)
+        if needed > self.pool.free_blocks:
+            raise RuntimeError("KV block pool exhausted")
+        slots=[self.pool.append(ids).slots for _ in range(length)]
+        return torch.tensor(slots,device=self.k.device,dtype=torch.long).t().contiguous()
+
+    def write_prefill(self, layer, k, v, state):
+        self.k[layer].flatten(0,1)[state]=k
+        self.v[layer].flatten(0,1)[state]=v
+
     @property
     def allocated_bytes(self):
         return 2*self.k.numel()*self.k.element_size()
@@ -56,7 +72,12 @@ class PagedCache:
 class ContiguousCache:
     """Independent dense pre-allocation baseline, one slot per sequence."""
     def __init__(self, layers, batch, max_context, kv_heads, head_dim,
-                 *, device="cpu", dtype=torch.float32):
+                 *, device="cpu", dtype=torch.float32, backend="sdpa"):
+        if backend not in ("sdpa","cuda"):
+            raise ValueError("dense backend must be sdpa or cuda")
+        if backend=="cuda" and max_context%16:
+            raise ValueError("controlled CUDA baseline requires max_context divisible by 16")
+        self.backend=backend
         self.k = torch.empty(layers, batch, max_context, kv_heads, head_dim, device=device, dtype=dtype)
         self.v = torch.empty_like(self.k)
         self.max_context = max_context
@@ -87,8 +108,35 @@ class ContiguousCache:
             self.lengths[i] += 1
         return state
 
+    def begin_prefill(self, ids, length):
+        if not ids or len(set(ids)) != len(ids) or not 0 < length <= self.max_context:
+            raise ValueError("invalid prefill request")
+        if any(self.lengths[i] != 0 for i in ids):
+            raise ValueError("batched prefill requires empty sequences")
+        rows=torch.tensor([self.rows[i] for i in ids],device=self.k.device)
+        for i in ids: self.lengths[i]=length
+        return rows,length
+
+    def write_prefill(self, layer, k, v, state):
+        rows,length=state
+        self.k[layer,rows,:length]=k
+        self.v[layer,rows,:length]=v
+
     def attend(self, layer, q, k, v, state):
         import torch.nn.functional as F
+        if self.backend=="cuda":
+            # Control arithmetic when testing storage layout: same tiled kernel,
+            # physically contiguous maximum-context reservation, no KV gathering.
+            rows=torch.tensor([row for row,_ in state],device=q.device,dtype=torch.long)
+            positions=torch.tensor([pos for _,pos in state],device=q.device,dtype=torch.long)
+            self.k[layer,rows,positions]=k
+            self.v[layer,rows,positions]=v
+            width=(max(pos for _,pos in state)+16)//16
+            tables=(rows[:,None]*(self.max_context//16)+torch.arange(width,device=q.device)).to(torch.int32)
+            lengths=(positions+1).to(torch.int32)
+            keys=self.k[layer].reshape(-1,16,self.k.shape[-2],self.k.shape[-1])
+            values=self.v[layer].reshape_as(keys)
+            return paged_attention(q.contiguous(),keys,values,tables,lengths,backend="cuda",algorithm="tiled",warps=4)
         # Batched dense baseline for equal-length requests (the throughput workload).
         if len({pos for _, pos in state}) == 1:
             rows = torch.tensor([row for row, _ in state], device=q.device)
