@@ -1,0 +1,36 @@
+{
+  "gpu": "NVIDIA A40",
+  "torch": "2.8.0+cu128",
+  "cuda": "12.8",
+  "batch": 32,
+  "context": 2048,
+  "heads": 32,
+  "kv_heads": 8,
+  "head_dim": 128,
+  "dtype": "bfloat16",
+  "block_size": 16,
+  "split_size": 512,
+  "iterations": 100,
+  "warps": 4,
+  "repeats": 5,
+  "paged_samples_ms": [
+    1.313472900390625,
+    1.3397599792480468,
+    1.3477900695800782,
+    1.32364990234375,
+    1.37884765625
+  ],
+  "flash_samples_ms": [
+    0.5022345733642578,
+    0.5002777481079101,
+    0.5029072189331054,
+    0.49895103454589845,
+    0.5053887939453126
+  ],
+  "paged_ms": 1.3397599792480468,
+  "flash_sdpa_ms": 0.5022345733642578,
+  "throughput_ratio": 0.37486906695491967,
+  "paged_queries_per_second": 23884.87527292785,
+  "max_abs_error": 0.0009765625,
+  "scope": "attention only; includes custom scratch allocation; excludes page construction and dense gathering"
+}

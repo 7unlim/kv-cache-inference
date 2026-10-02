@@ -21,6 +21,16 @@ kernel versus 0.485 ms for forced flash SDPA: **18.0% of flash throughput**.
 This is one initial 100-iteration measurement, not a tuned performance result.
 Raw benchmark and test records are in `validation/a40-2026-10-01/`.
 
+The multi-warp iteration at `a85b408` passed all **53 tests** on an A40 on
+October 2, 2026 UTC (October 1 Pacific). At the same benchmark shape, the
+4-warp variant measured **1.313 ms**, versus **2.208 ms** for the one-warp
+baseline rerun on the same host: **1.68x throughput / 40.6% lower latency**.
+It reached **38.4% of forced flash SDPA throughput** (0.504 ms). These are
+medians of five 100-iteration samples. The earlier 18.0% result came from a
+different session; use the same-session baseline of 22.2% for this comparison.
+Raw results and reproduction commands are in
+`validation/a40-multiwarp-2026-10-02/`.
+
 **Llama 3 8B checkpoint execution and A100 performance remain unvalidated.**
 The resume targets of 1,100 tokens/s, 75% of flash SDPA, and 4x concurrent
 sequences are not established results. Attention queries/s is not full-model
@@ -91,7 +101,8 @@ CPU execution is available via `--device cpu --backend reference`, but the full
 - `kv_cache/cache.py`: device K/V storage shaped `[layers, pages, block_size,
   kv_heads, head_dim]`. Copies span every layer before either branch writes.
   A reservation returns physical token slots and padded device block tables.
-- `kv_cache/csrc/decode.cu`: one warp per sequence/query-head/context partition;
+- `kv_cache/csrc/decode.cu`: one warp by default, or opt-in four/eight warps,
+  per sequence/query-head/context partition;
   GQA maps query heads to KV heads. Warp shuffles reduce QK dots, online softmax
   accumulates weighted V in FP32, and a second kernel merges partition outputs
   using their maxima and exponential sums. Empty partitions have zero mass.
@@ -167,9 +178,17 @@ workload-specific check, not a guarantee for all floating-point executions.
 The current source adds opt-in `warps=4` and `warps=8` variants. Each warp
 processes a disjoint subset of a context partition, then shared-memory reduction
 combines their softmax states. `warps=1` remains the default baseline.
-These changes have **not yet been compiled or tested on a GPU**; the recorded
-A40 results above apply to the earlier baseline, not these candidates.
-Local checks passed 16 CPU tests; 37 CUDA tests were skipped.
+All three variants compiled and passed the expanded GPU correctness suite:
+53 tests passed, none skipped. At batch 32 / context 2048, four warps was
+fastest (1.313 ms), followed by eight (1.746 ms), then one (2.208 ms).
+The four-warp partition-size sweep covered 64, 128, 256, 512, and 1024 tokens;
+256 had the lowest median latency. The 128 and 512 results were close
+(1.331 and 1.340 ms), so this is a measured configuration, not a universal optimum.
+
+Use `paged_attention(..., backend="cuda", warps=4, split_size=256)` to select
+the measured faster variant. Model generation still uses the default one-warp
+path; the multi-warp speedup is an attention-only result, not an end-to-end
+generation improvement. The full-model greedy test covers the default path.
 
 Compare candidates on the same GPU after the expanded correctness suite passes:
 
@@ -181,4 +200,6 @@ python -m benchmarks.attention --warps 8 --repeats 5 --output results/warps8.jso
 ```
 
 The benchmark now reports median latency and individual timing samples, alternating
-custom/flash timing order between repeats. No speedup is claimed until measured.
+custom/flash timing order between repeats. Raw samples, including slower
+candidates, are retained in the validation directory. No A100 or full-checkpoint
+performance is implied by these A40 attention measurements.
